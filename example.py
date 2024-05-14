@@ -1,6 +1,7 @@
 import warnings
 from functools import partial as bind
-
+import os
+os.environ['MUJOCO_GL'] = 'egl'
 import dreamerv3
 import embodied
 
@@ -11,9 +12,16 @@ def main():
 
   config = embodied.Config(dreamerv3.Agent.configs['defaults'])
   config = config.update({
-      **dreamerv3.Agent.configs['size100m'],
-      'logdir': f'~/logdir/{embodied.timestamp()}-example',
-      'run.train_ratio': 32,
+      **dreamerv3.Agent.configs['size12m'],
+      'logdir': f'{os.getcwd()}/logdir/{embodied.timestamp()}-example',
+      'run.train_ratio': 512,
+      'run.steps': 6e5,
+      'enc.spaces': 'image|state',
+      'dec.spaces': 'image|state',
+      'run.script': 'train',
+      'replay_length': 65,
+      'replay_length_eval': 33,
+      'run.log_video_fps': 50,
   })
   config = embodied.Flags(config).parse()
 
@@ -33,7 +41,8 @@ def main():
     return embodied.Logger(embodied.Counter(), [
         embodied.logger.TerminalOutput(config.filter),
         embodied.logger.JSONLOutput(logdir, 'metrics.jsonl'),
-        embodied.logger.TensorBoardOutput(logdir),
+        embodied.logger.JSONLOutput(logdir, 'scores.jsonl', 'episode/score'),
+        embodied.logger.TensorBoardOutput(logdir, config.run.log_video_fps, config.tensorboard_videos),
         # embodied.logger.WandbOutput(logdir.name, config=config),
     ])
 
@@ -45,10 +54,14 @@ def main():
         online=config.replay.online)
 
   def make_env(config, env_id=0):
-    import crafter
+    from embodied.envs.solo12_v0 import Solo12Env
     from embodied.envs import from_gym
-    env = crafter.Env()
-    env = from_gym.FromGym(env)
+    from embodied.envs.dmc import DMC
+    from dm_control import suite
+    env = Solo12Env(xml_file=f"{os.getcwd()}/embodied/envs/assets/scene.xml",
+                  render_mode="rgb_array", 
+                  width=64, height=64)
+    env = from_gym.FromGym(env, obs_key='image')
     env = dreamerv3.wrap_env(env, config)
     return env
 
@@ -66,6 +79,7 @@ def main():
       bind(make_replay, config),
       bind(make_env, config),
       bind(make_logger, config), args)
+  
 
 
 if __name__ == '__main__':

@@ -7,3 +7,6 @@ psutil
 ruamel.yaml
 tensorflow-cpu
 zmq
+gymnasium[all]
+dm_control
+gym
