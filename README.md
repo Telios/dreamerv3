@@ -57,6 +57,13 @@ follow the manual instructions below.
 
 ## Manual
 
+Make a virtual environment:
+
+```sh
+python3.11 -m venv venv
+source venv/bin/activate
+```
+
 Install [JAX][jax] and then the other dependencies:
 
 ```sh
