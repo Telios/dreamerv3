@@ -54,10 +54,13 @@ def main():
         online=config.replay.online)
 
   def make_env(config, env_id=0):
-    from embodied.envs.solo12_v0 import Solo12Env
+    import sys
+    sys.path.append("../")
+    from testing.envs.solo12_v1 import Solo12Env
+    #from embodied.envs.solo12_v0 import Solo12Env
     from embodied.envs import from_gym
     from embodied.envs.dmc import DMC
-    env = Solo12Env(xml_file=f"{os.getcwd()}/embodied/envs/assets/scene.xml",
+    env = Solo12Env(xml_file=f"{os.getcwd()}/../testing/assets/scene.xml",
                   render_mode="rgb_array", 
                   width=64, height=64)
     env = from_gym.FromGym(env, obs_key='image')
