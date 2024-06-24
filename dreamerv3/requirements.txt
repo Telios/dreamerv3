@@ -1,6 +1,6 @@
 chex
 einops
-jax[cuda12_pip]
-jaxlib
+jax[cuda]==0.4.10
+jaxlib==0.4.10
 optax
 tensorflow_probability

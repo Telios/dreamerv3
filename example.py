@@ -57,7 +57,6 @@ def main():
     from embodied.envs.solo12_v0 import Solo12Env
     from embodied.envs import from_gym
     from embodied.envs.dmc import DMC
-    from dm_control import suite
     env = Solo12Env(xml_file=f"{os.getcwd()}/embodied/envs/assets/scene.xml",
                   render_mode="rgb_array", 
                   width=64, height=64)
