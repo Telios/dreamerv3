@@ -15,7 +15,7 @@ def main():
       **dreamerv3.Agent.configs['size12m'],
       'logdir': f'{os.getcwd()}/logdir/{embodied.timestamp()}-example',
       'run.train_ratio': 512,
-      'run.steps': 6e5,
+      'run.steps': 1e6,
       'enc.spaces': 'image|state',
       'dec.spaces': 'image|state',
       'run.script': 'train',
