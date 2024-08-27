@@ -14,7 +14,7 @@ def main():
   config = embodied.Config(dreamerv3.Agent.configs['defaults'])
   config = config.update({
       **dreamerv3.Agent.configs['size12m'],
-      'logdir': f'{os.getcwd()}/logdir/20240822T073041-example',
+      'logdir': f'{os.getcwd()}/logdir/20240823T052847-example',
       'run.train_ratio': 512,
       'run.steps': 6e5,
       'enc.spaces': 'image|state',
@@ -73,7 +73,7 @@ def main():
         obs[key] = np.array([obs[key]])
   
   video_width = video_height = 256
-  video_writer = cv.VideoWriter("./videos/pybullet_world_model_dodging.avi", cv.VideoWriter_fourcc(*"XVID"), 30, (video_width, video_height))
+  video_writer = cv.VideoWriter("./videos/pybullet_world_model_dodging_event_camera.avi", cv.VideoWriter_fourcc(*"XVID"), 30, (video_width, video_height))
 
   for i in range(NR_STEPS):
       #obs["state"][0][-3:] = command
