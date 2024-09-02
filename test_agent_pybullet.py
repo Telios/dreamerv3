@@ -14,7 +14,7 @@ def main():
   config = embodied.Config(dreamerv3.Agent.configs['defaults'])
   config = config.update({
       **dreamerv3.Agent.configs['size12m'],
-      'logdir': f'{os.getcwd()}/logdir/20240823T052847-example',
+      'logdir': f'{os.getcwd()}/logdir/20240827T055930-example',
       'run.train_ratio': 512,
       'run.steps': 6e5,
       'enc.spaces': 'image|state',
@@ -54,7 +54,7 @@ def main():
   NR_STEPS = 2000
   obs = {}
   obs["image"] = np.zeros((1, 64, 64, 3), dtype=np.uint8)
-  obs["state"] = np.zeros((1, 18), dtype=np.float64)
+  obs["state"] = np.zeros((1, 21), dtype=np.float64)
   obs["is_first"] = np.array([True])
   obs["is_last"] = np.array([False])
   obs["is_terminal"] = np.array([False])
@@ -73,7 +73,8 @@ def main():
         obs[key] = np.array([obs[key]])
   
   video_width = video_height = 256
-  video_writer = cv.VideoWriter("./videos/pybullet_world_model_dodging_event_camera.avi", cv.VideoWriter_fourcc(*"XVID"), 30, (video_width, video_height))
+  video_writer = cv.VideoWriter("./videos/pybullet_world_model_dodging_event_camera_2m_steps.avi", cv.VideoWriter_fourcc(*"XVID"), 30, (video_width, video_height))
+  video_writer_pov = cv.VideoWriter("./videos/pybullet_world_model_dodging_event_camera_2m_steps_pov.avi", cv.VideoWriter_fourcc(*"XVID"), 30, (64, 64))
 
   for i in range(NR_STEPS):
       #obs["state"][0][-3:] = command
@@ -88,6 +89,7 @@ def main():
       obs = env.step(action)
       image = cv.cvtColor(env._env.render(width=video_width, height=video_height, distance=1.5, yaw=-40, pitch=-30, stationary=True), cv.COLOR_RGB2BGR)
       video_writer.write(image)
+      video_writer_pov.write(obs["image"])
       sanitize_obs(obs)
   avg_time = np.mean(times)
   print(f"Average time encoder + policy (given already rescaled image): {avg_time:.2f} ms")
