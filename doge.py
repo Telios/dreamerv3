@@ -1,12 +1,16 @@
 import warnings
 from functools import partial as bind
 import os
+import sys
+#sys.path.append(os.path.join(os.getcwd(), '.'))
 os.environ['MUJOCO_GL'] = 'egl'
 import dreamerv3
 import embodied
 warnings.filterwarnings('ignore', '.*truncated to dtype int32.*')
 import cv2 as cv
-
+from utils.event_camera import EventCamera
+from external.quadruped_rl.controller import RealSolo12
+import threading
 
 def main():
 
@@ -14,7 +18,7 @@ def main():
   config = embodied.Config(dreamerv3.Agent.configs['defaults'])
   config = config.update({
       **dreamerv3.Agent.configs['size12m'],
-      'logdir': f'{os.getcwd()}/logdir/20240827T055930-example',
+      'logdir': f'{os.getcwd()}/logdir/20240823T052847-example',
       'run.train_ratio': 512,
       'run.steps': 6e5,
       'enc.spaces': 'image|state',
@@ -52,7 +56,7 @@ def main():
   checkpoint.agent = agent
   checkpoint.load(f"{config.logdir}/checkpoint.ckpt", keys=['agent'])
   
-  NR_STEPS = 2000
+  NR_STEPS = 30 * 100 # seconds * 100, since 1 step = 10 ms
   obs = {}
   obs["image"] = np.zeros((1, 64, 64, 3), dtype=np.uint8)
   obs["state"] = np.zeros((1, 21), dtype=np.float64)
@@ -73,10 +77,16 @@ def main():
       else:
         obs[key] = np.array([obs[key]])
   
-  video_width = video_height = 256
-  video_writer = cv.VideoWriter("./videos/pybullet_world_model_dodging_event_camera.avi", cv.VideoWriter_fourcc(*"XVID"), 30, (video_width, video_height))
+  video_width = video_height = 64
+  video_writer = cv.VideoWriter("./videos/pybullet_world_model_dodging_event_camera.avi", cv.VideoWriter_fourcc(*"XVID"), 100, (video_width, video_height))
 
-  action_array = np.array([])
+  event_camera = EventCamera(downscale=True)
+  event_camera_thread = threading.Thread(target=event_camera.run)
+  event_camera_thread.start()
+
+  solo12_controller = RealSolo12()
+  solo12_controller.prepare_walking()
+
   for i in range(NR_STEPS):
       #obs["state"][0][-3:] = command
       if i == 1:
@@ -85,16 +95,21 @@ def main():
       action, _, state = agent.policy(obs, state, mode='eval')
       end = time.time()
       action["action"] = action["action"][0]
-      np.append(action_array, action["action"])
       action["reset"] = False
       times = np.append(times, (end - start) * 1000) if i > 2 else times
-      obs = env.step(action)
-      image = cv.cvtColor(env._env.render(width=video_width, height=video_height, distance=1.5, yaw=-40, pitch=-30, stationary=True), cv.COLOR_RGB2BGR)
+      obs = solo12_controller.step(action["action"])
+      image = event_camera.current_image
+      obs["image"] = image
       video_writer.write(image)
       sanitize_obs(obs)
+      end = time.time()
+      deltatime = (end - start) * 1000
+      print(f"Time for whole loop: {deltatime:.2f} ms")
+
   avg_time = np.mean(times)
   print(f"Average time encoder + policy (given already rescaled image): {avg_time:.2f} ms")
-  np.save("action_array.npy", action_array)
+  video_writer.release()
+  event_camera_thread.join()
 
 if __name__ == '__main__':
   main()
