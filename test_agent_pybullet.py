@@ -47,6 +47,8 @@ def main():
   env = from_gym.FromGym(env, obs_key='image')
   env_dreamer = dreamerv3.wrap_env(env, config)
   
+  print(env_dreamer.obs_space)
+  print(env_dreamer.act_space)
   agent = dreamerv3.Agent(env_dreamer.obs_space, env_dreamer.act_space, config)
   checkpoint = embodied.Checkpoint()
   checkpoint.agent = agent
