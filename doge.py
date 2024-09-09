@@ -15,8 +15,9 @@ from multiprocessing import Process
 import dv_processing as dv
 from datetime import timedelta
 from multiprocessing import Array, shared_memory
-from ctypes import c_double, c_uint
+from ctypes import c_double, c_uint, c_bool
 import numpy as np
+import time
 
 
 def run_event_process(fps, downscale, rgb_background, rgb_pos, rgb_neg, current_img):
@@ -50,14 +51,56 @@ def run_event_process(fps, downscale, rgb_background, rgb_pos, rgb_neg, current_
         if events is not None:
             slicer.accept(events)
 
+def run_controller_process(action, q_mes, accelerometer, angular_velocity, last_action, started):
+    solo12_controller = RealSolo12()
+    started.value = solo12_controller.started
+    solo12_controller.prepare_walking()
+
+    frequency = 100
+    period = 1.0 / frequency
+    while True:
+        start_time = time.time()
+        obs = solo12_controller.step(action[:])
+        state = obs["state"]
+        q_mes[:] = state[0:12]
+        accelerometer[:] = state[12:15]
+        angular_velocity[:] = state[15:18]
+        last_action[:] = state[18:21]
+
+        elapsed_time = time.time() - start_time
+        sleep_time = period - elapsed_time
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+        end_time = time.time()
+        print(f"Controller loop time: {(end_time - start_time) * 1000:.2f} ms")
+    
 def main():
+  # Shared variables
   current_image = Array(c_uint, 64*64*3)
   current_image[:] = np.random.randint(0, 255, (64, 64, 3), dtype=np.int16).flatten()
+
+  action = Array(c_double, 3)
+  action[:] = np.array([0.0, 0.0, 0.0])
+
+  started = Array(c_bool, 1)
+  started.value = False
+
+
+  # state
+  q_mes = Array(c_double, 12)
+  q_mes[:] = np.zeros(12)
+  accelerometer = Array(c_double, 3)
+  accelerometer[:] = np.zeros(3)
+  angular_velocity = Array(c_double, 3)
+  angular_velocity[:] = np.zeros(3)
+  last_action = Array(c_double, 3)
+  last_action[:] = np.zeros(3)
+
   # See configs.yaml for all options.
   config = embodied.Config(dreamerv3.Agent.configs['defaults'])
   config = config.update({
       **dreamerv3.Agent.configs['size12m'],
-      'logdir': f'{os.getcwd()}/logdir/20240823T052847-example',
+      'logdir': f'{os.getcwd()}/logdir/20240827T055930-example',
       'run.train_ratio': 512,
       'run.steps': 6e5,
       'enc.spaces': 'image|state',
@@ -80,8 +123,6 @@ def main():
       # embodied.logger.WandBOutput(logdir.name, config),
       # embodied.logger.MLFlowOutput(logdir.name),
   ])
-
-  import sys
   
   obs_space = {
     'image': embodied.Space(dtype=np.float32, shape=(64, 64, 3), low=0, high=255),
@@ -124,6 +165,16 @@ def main():
     obs["is_last"] = np.array([False])
     obs["is_terminal"] = np.array([False])
     obs["reward"] = np.array([0.0])
+
+  def build_obs(q_mes, accelerometer, angular_velocity, last_action, image):
+    obs = {}
+    obs["image"] = np.array(image).reshape((64, 64, 3))
+    obs["state"] = np.concatenate((q_mes, accelerometer, angular_velocity, last_action))
+    obs["is_first"] = np.array([False])
+    obs["is_last"] = np.array([False])
+    obs["is_terminal"] = np.array([False])
+    obs["reward"] = np.array([0.0])
+    return obs
   
   video_width = video_height = 64
   video_writer = cv.VideoWriter("./videos/pybullet_world_model_dodging_event_camera.avi", cv.VideoWriter_fourcc(*"XVID"), 100, (video_width, video_height))
@@ -131,45 +182,27 @@ def main():
 
   event_camera_process = Process(target=run_event_process, args=(100, True, (125, 125, 125), (255, 255, 255), (0, 0, 0), current_image))
   event_camera_process.start()
+  controller_process = Process(target=run_controller_process, args=(action, q_mes, accelerometer, angular_velocity, last_action, started))
+  controller_process.start()
 
-  for i in range(2):
-    start = time.time()
-    action, _, state = agent.policy(obs, state, mode='eval')
-    end = time.time()
-    print(f"Policy deltatime init: {(end - start) * 1000:.2f} ms")
-  
-
-  solo12_controller = RealSolo12()
-  solo12_controller.prepare_walking()
-
-  
-  def don_t_lose_connection():
-    for i in range(666):
-      solo12_controller.step([0, 0, 0])
-    
-  dont_lose_connection_thread = threading.Thread(target=don_t_lose_connection)
-  dont_lose_connection_thread.start()
-
+  while not started.value:
+    time.sleep(1)
 
   for i in range(NR_STEPS):
       #obs["state"][0][-3:] = command
-      if i == 0:
+      if i == 1:
         obs["is_first"] = np.array([False])
       start = time.time()
       init_start = start
-      action, _, state = agent.policy(obs, state, mode='eval')
+      action_policy, _, state = agent.policy(obs, state, mode='eval')
       end = time.time()
       print(f"Policy deltatime: {(end - start) * 1000:.2f} ms")
-      action["action"] = action["action"][0]
-      print(action["action"])
-      action["reset"] = False
+      action_policy["action"] = action_policy["action"][0]
+      print(action_policy["action"])
+      action[:] = action_policy["action"]
+      action_policy["reset"] = False
       times = np.append(times, (end - start) * 1000) if i > 2 else times
-      start = time.time()
-      obs = solo12_controller.step(action["action"])
-      end = time.time()
-      print(f"Controller deltatime: {(end - start) * 1000:.2f} ms")
-      image = np.array(current_image[:]).reshape((64, 64, 3))
-      obs["image"] = image
+      obs = build_obs(q_mes[:], accelerometer[:], angular_velocity[:], last_action[:], current_image[:])
       #video_writer.write(image)
       sanitize_obs(obs)
       end = time.time()
@@ -179,8 +212,8 @@ def main():
   avg_time = np.mean(times)
   print(f"Average time encoder + policy (given already rescaled image): {avg_time:.2f} ms")
   video_writer.release()
-  dont_lose_connection_thread.join()
   event_camera_process.join()
+  controller_process.join()
 
 if __name__ == '__main__':
   main()
