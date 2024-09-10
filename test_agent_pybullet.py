@@ -14,7 +14,7 @@ def main():
   config = embodied.Config(dreamerv3.Agent.configs['defaults'])
   config = config.update({
       **dreamerv3.Agent.configs['size12m'],
-      'logdir': f'{os.getcwd()}/logdir/20240827T055930-example',
+      'logdir': f'{os.getcwd()}/logdir/20240909T021806-example',
       'run.train_ratio': 512,
       'run.steps': 6e5,
       'enc.spaces': 'image|state',
@@ -54,7 +54,7 @@ def main():
   checkpoint.agent = agent
   checkpoint.load(f"{config.logdir}/checkpoint.ckpt", keys=['agent'])
   
-  NR_STEPS = 2000
+  NR_STEPS = 500
   obs = {}
   obs["image"] = np.zeros((1, 64, 64, 3), dtype=np.uint8)
   obs["state"] = np.zeros((1, 21), dtype=np.float64)
@@ -87,6 +87,7 @@ def main():
       action, _, state = agent.policy(obs, state, mode='eval')
       end = time.time()
       action["action"] = action["action"][0]
+      print(action["action"])
       np.append(action_array, action["action"])
       action["reset"] = False
       times = np.append(times, (end - start) * 1000) if i > 2 else times

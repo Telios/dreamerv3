@@ -14,10 +14,11 @@ from multiprocessing import Process
 
 import dv_processing as dv
 from datetime import timedelta
-from multiprocessing import Array, shared_memory
+from multiprocessing import Array, shared_memory, Value
 from ctypes import c_double, c_uint, c_bool
 import numpy as np
 import time
+from collections import deque
 
 
 def run_event_process(fps, downscale, rgb_background, rgb_pos, rgb_neg, current_img):
@@ -53,7 +54,37 @@ def run_event_process(fps, downscale, rgb_background, rgb_pos, rgb_neg, current_
 
 def run_controller_process(action, q_mes, accelerometer, angular_velocity, last_action, started):
     solo12_controller = RealSolo12()
-    started.value = solo12_controller.started
+
+    Kp = np.full(12, 3.0)
+    Kd = np.full(12, 0.1)
+
+    solo12_controller.device.SetDesiredJointPDgains(Kp, Kd)
+    solo12_controller.device.SetDesiredJointPosition(solo12_controller.params.q_init)
+    solo12_controller.device.SetDesiredJointVelocity(np.zeros(12))
+    solo12_controller.device.SetDesiredJointTorque(np.zeros(12))
+
+    print("Init")
+    print(solo12_controller.params.q_init)
+
+    while not started.value:
+        solo12_controller.device.UpdateMeasurment()
+        solo12_controller.device.SendCommand(WaitEndOfCycle=True)
+        #state = solo12_controller.get_state(np.array([0.0, 0.0, 0.0]))
+        #print(state)
+
+        
+      
+    duration_increase = 2.0
+    tau_init = np.zeros(12,)
+    steps = int(duration_increase / solo12_controller.params.dt)
+    for i in range(steps):
+        solo12_controller.device.SetDesiredJointTorque(tau_init * i / steps)
+        solo12_controller.device.UpdateMeasurment()
+        solo12_controller.device.SendCommand(WaitEndOfCycle=True)
+    
+    print("Start the motion.")
+
+
     solo12_controller.prepare_walking()
 
     frequency = 100
@@ -72,7 +103,7 @@ def run_controller_process(action, q_mes, accelerometer, angular_velocity, last_
         if sleep_time > 0:
             time.sleep(sleep_time)
         end_time = time.time()
-        print(f"Controller loop time: {(end_time - start_time) * 1000:.2f} ms")
+        #print(f"Controller loop time: {(end_time - start_time) * 1000:.2f} ms")
     
 def main():
   # Shared variables
@@ -82,7 +113,7 @@ def main():
   action = Array(c_double, 3)
   action[:] = np.array([0.0, 0.0, 0.0])
 
-  started = Array(c_bool, 1)
+  started = Value(c_bool, 1)
   started.value = False
 
 
@@ -125,7 +156,7 @@ def main():
   ])
   
   obs_space = {
-    'image': embodied.Space(dtype=np.float32, shape=(64, 64, 3), low=0, high=255),
+    'image': embodied.Space(dtype=np.uint8, shape=(64, 64, 3), low=0, high=255),
     'state': embodied.Space(dtype=np.float64, shape=(21,)),
     'is_first': embodied.Space(bool),
     'is_last': embodied.Space(bool),
@@ -141,7 +172,7 @@ def main():
   checkpoint.agent = agent
   checkpoint.load(f"{config.logdir}/checkpoint.ckpt", keys=['agent'])
   
-  NR_STEPS = 30 * 100 # seconds * 100, since 1 step = 10 ms
+  NR_STEPS = 200 * 100 # seconds * 100, since 1 step = 10 ms
   obs = {}
   obs["image"] = np.zeros((1, 64, 64, 3), dtype=np.uint8)
   obs["state"] = np.zeros((1, 21), dtype=np.float64)
@@ -185,9 +216,13 @@ def main():
   controller_process = Process(target=run_controller_process, args=(action, q_mes, accelerometer, angular_velocity, last_action, started))
   controller_process.start()
 
-  while not started.value:
-    time.sleep(1)
 
+  input("Press Enter to start doge.")
+  started.value = True
+
+  action_queue = deque(maxlen=20)
+  frequency = 200
+  period = 1.0 / frequency
   for i in range(NR_STEPS):
       #obs["state"][0][-3:] = command
       if i == 1:
@@ -196,18 +231,24 @@ def main():
       init_start = start
       action_policy, _, state = agent.policy(obs, state, mode='eval')
       end = time.time()
-      print(f"Policy deltatime: {(end - start) * 1000:.2f} ms")
+      #print(f"Policy deltatime: {(end - start) * 1000:.2f} ms")
       action_policy["action"] = action_policy["action"][0]
-      print(action_policy["action"])
-      action[:] = action_policy["action"]
+      action_queue.append(action_policy["action"] * 0.3)
+      smoothed_action = np.mean(action_queue, axis=0)
+      print(smoothed_action)
+      action[:] = smoothed_action
       action_policy["reset"] = False
       times = np.append(times, (end - start) * 1000) if i > 2 else times
       obs = build_obs(q_mes[:], accelerometer[:], angular_velocity[:], last_action[:], current_image[:])
       #video_writer.write(image)
       sanitize_obs(obs)
+      elapsed_time = time.time() - init_start
+      sleep_time = period - elapsed_time
+      if sleep_time > 0:
+          time.sleep(sleep_time)
       end = time.time()
       deltatime = (end - init_start) * 1000
-      print(f"Time for whole loop: {deltatime:.2f} ms")
+      #print(f"Time for whole loop: {deltatime:.2f} ms")
 
   avg_time = np.mean(times)
   print(f"Average time encoder + policy (given already rescaled image): {avg_time:.2f} ms")
