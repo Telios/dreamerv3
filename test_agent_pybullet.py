@@ -14,7 +14,7 @@ def main():
   config = embodied.Config(dreamerv3.Agent.configs['defaults'])
   config = config.update({
       **dreamerv3.Agent.configs['size12m'],
-      'logdir': f'{os.getcwd()}/logdir/20240909T021806-example',
+      'logdir': f'{os.getcwd()}/logdir/20240910T072621-example',
       'run.train_ratio': 512,
       'run.steps': 6e5,
       'enc.spaces': 'image|state',
@@ -54,7 +54,7 @@ def main():
   checkpoint.agent = agent
   checkpoint.load(f"{config.logdir}/checkpoint.ckpt", keys=['agent'])
   
-  NR_STEPS = 500
+  NR_STEPS = 2000
   obs = {}
   obs["image"] = np.zeros((1, 64, 64, 3), dtype=np.uint8)
   obs["state"] = np.zeros((1, 21), dtype=np.float64)
@@ -76,7 +76,7 @@ def main():
         obs[key] = np.array([obs[key]])
   
   video_width = video_height = 256
-  video_writer = cv.VideoWriter("./videos/pybullet_world_model_dodging_event_camera.avi", cv.VideoWriter_fourcc(*"XVID"), 30, (video_width, video_height))
+  video_writer = cv.VideoWriter("./videos/pybullet_world_model_dodging_event_camera.avi", cv.VideoWriter_fourcc(*"XVID"), 45, (video_width, video_height))
 
   action_array = np.array([])
   for i in range(NR_STEPS):
@@ -92,6 +92,8 @@ def main():
       action["reset"] = False
       times = np.append(times, (end - start) * 1000) if i > 2 else times
       obs = env.step(action)
+      if obs["is_terminal"]:
+        env.reset()
       image = cv.cvtColor(env._env.render(width=video_width, height=video_height, distance=1.5, yaw=-40, pitch=-30, stationary=True), cv.COLOR_RGB2BGR)
       video_writer.write(image)
       sanitize_obs(obs)

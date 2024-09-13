@@ -26,7 +26,7 @@ def run_event_process(fps, downscale, rgb_background, rgb_pos, rgb_neg, current_
     if not capture.isEventStreamAvailable():
         raise RuntimeError("Input camera does not provide an event stream.")
         
-    capture.setDVSBiasSensitivity(dv.io.CameraCapture.BiasSensitivity.Low)
+    capture.setDVSBiasSensitivity(dv.io.CameraCapture.BiasSensitivity.VeryLow)
     capture.setDVXplorerEFPS(dv.io.CameraCapture.DVXeFPS.EFPS_CONSTANT_500)
 
     fps = fps
@@ -41,7 +41,11 @@ def run_event_process(fps, downscale, rgb_background, rgb_pos, rgb_neg, current_
         if downscale:
             img = cv.resize(img, (85, 64), interpolation=cv.INTER_NEAREST)
             img = img[0:64, 10:74]
+            img = cv.medianBlur(img, 3)
+            cv.imshow("Event camera", cv.resize(img, (256, 256)))
+            cv.waitKey(1)
         current_img[:] = np.array(img).flatten()
+
         
     slicer = dv.EventStreamSlicer()
     slicer.doEveryTimeInterval(timedelta(milliseconds=1000/fps), slicing_callback)
@@ -131,7 +135,7 @@ def main():
   config = embodied.Config(dreamerv3.Agent.configs['defaults'])
   config = config.update({
       **dreamerv3.Agent.configs['size12m'],
-      'logdir': f'{os.getcwd()}/logdir/20240827T055930-example',
+      'logdir': f'{os.getcwd()}/logdir/20240910T072621-example',
       'run.train_ratio': 512,
       'run.steps': 6e5,
       'enc.spaces': 'image|state',
@@ -167,6 +171,8 @@ def main():
     'action': embodied.Space(np.float32, (3,), -1.0, 1.0),
     'reset': embodied.Space(dtype=bool),
   }
+  event_camera_process = Process(target=run_event_process, args=(100, True, (125, 125, 125), (255, 255, 255), (0, 0, 0), current_image))
+  event_camera_process.start()
   agent = dreamerv3.Agent(obs_space, act_space, config)
   checkpoint = embodied.Checkpoint()
   checkpoint.agent = agent
@@ -211,8 +217,7 @@ def main():
   video_writer = cv.VideoWriter("./videos/pybullet_world_model_dodging_event_camera.avi", cv.VideoWriter_fourcc(*"XVID"), 100, (video_width, video_height))
 
 
-  event_camera_process = Process(target=run_event_process, args=(100, True, (125, 125, 125), (255, 255, 255), (0, 0, 0), current_image))
-  event_camera_process.start()
+
   controller_process = Process(target=run_controller_process, args=(action, q_mes, accelerometer, angular_velocity, last_action, started))
   controller_process.start()
 
@@ -220,8 +225,8 @@ def main():
   input("Press Enter to start doge.")
   started.value = True
 
-  action_queue = deque(maxlen=20)
-  frequency = 200
+  action_queue = deque(maxlen=10)
+  frequency = 100
   period = 1.0 / frequency
   for i in range(NR_STEPS):
       #obs["state"][0][-3:] = command
@@ -233,6 +238,7 @@ def main():
       end = time.time()
       #print(f"Policy deltatime: {(end - start) * 1000:.2f} ms")
       action_policy["action"] = action_policy["action"][0]
+      action_policy["action"] = np.clip(action_policy["action"], -1.6, 1.6)
       action_queue.append(action_policy["action"] * 0.3)
       smoothed_action = np.mean(action_queue, axis=0)
       print(smoothed_action)
